@@ -1,0 +1,57 @@
+
+./Setup.hs,15
+main main1,2
+
+./app/Main.hs,1569
+module Main Main0,1
+data Command Command3,4
+  InfoInfo4,5
+  | InitInit5,6
+  | ListList6,7
+  | AddAdd7,8
+  | ViewView8,9
+  | Update Update9,10
+  | RemoveRemove10,11
+type ItemIndex ItemIndex12,13
+type ItemTitle ItemTitle13,14
+type ItemDescription ItemDescription14,15
+type ItemPriority ItemPriority15,16
+type ItemDueBy ItemDueBy16,17
+data Options Options17,18
+data Options = Options Options17,18
+data ItemUpdate ItemUpdate18,19
+data ItemUpdate = ItemUpdateItemUpdate18,19
+  { titleUpdate titleUpdate19,20
+  , descriptionUpdate descriptionUpdate20,21
+  , priorityUpdate priorityUpdate21,22
+  , dueByUpdate dueByUpdate22,23
+defaultDataPath defaultDataPath24,25
+dataPathParser dataPathParser26,27
+itemIndexParser itemIndexParser33,34
+itemTitleValueParser itemTitleValueParser35,36
+itemDescriptionValueParser itemDescriptionValueParser38,39
+itemPriorityValueParser itemPriorityValueParser41,42
+itemDueByValueParser itemDueByValueParser44,45
+infoParser infoParser47,48
+initParser initParser49,50
+listParser listParser51,52
+addParser addParser53,54
+viewParser viewParser55,56
+updateParser updateParser57,58
+removeParser removeParser59,60
+commandParser commandParser61,62
+optionsParser optionsParser73,74
+updateItemParser updateItemParser76,77
+updateItemTitleParser updateItemTitleParser82,83
+updateItemDescriptionParser updateItemDescriptionParser84,85
+updateItemPriorityParser updateItemPriorityParser88,89
+updateItemDueByParser updateItemDueByParser92,93
+main main97,98
+run run101,102
+
+./test/Spec.hs,15
+main main0,1
+
+./src/Lib.hs,42
+module LibLib0,1
+someFunc someFunc4,5
