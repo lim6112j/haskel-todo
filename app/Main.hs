@@ -1,21 +1,40 @@
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Main where
-
+import Data.Aeson hiding (Options)
+import qualified Data.ByteString.Char8 as BS
+import qualified Data.ByteString.Lazy.Char8 as BSL
+import qualified Data.Yaml as Yaml
+import GHC.Generics
 import Options.Applicative hiding (infoParser)
 data Command =
   Info
   | Init
   | List
-  | Add
-  | View
+  | Add Item
+  | View ItemIndex
   | Update ItemIndex ItemUpdate
-  | Remove
+  | Remove ItemIndex
   deriving Show
 type ItemIndex = Int
 type ItemTitle = String
 type ItemDescription = Maybe String
 type ItemPriority = Maybe String
 type ItemDueBy = Maybe String
+
+data ToDoList = ToDoList
+  { name :: String
+  , details :: String
+  } deriving (Generic, Show)
+instance ToJSON ToDoList
 data Options = Options FilePath Command deriving Show
+data Item = Item
+  { title :: ItemTitle
+  , description :: ItemDescription
+  , priority :: ItemPriority
+  , dueBy :: ItemDueBy
+  } deriving Show
+
 data ItemUpdate = ItemUpdate
   { titleUpdate :: Maybe ItemTitle
   , descriptionUpdate :: Maybe ItemDescription
@@ -45,6 +64,7 @@ itemPriorityValueParser =
 itemDueByValueParser :: Parser String
 itemDueByValueParser =
   strOption (long "DueBy" <> short 'b' <> metavar "DUEBY" <> help "Due By")
+
 infoParser :: Parser Command
 infoParser = pure Info
 initParser :: Parser Command
@@ -52,13 +72,13 @@ initParser = pure Init
 listParser :: Parser Command
 listParser = pure List
 addParser :: Parser Command
-addParser = pure Add
+addParser = Add <$> addItemParser
 viewParser :: Parser Command
-viewParser = pure View
+viewParser = View <$> itemIndexParser
 updateParser :: Parser Command
 updateParser = Update <$> itemIndexParser <*> updateItemParser
 removeParser :: Parser Command
-removeParser = pure Remove
+removeParser = Remove <$> itemIndexParser
 commandParser :: Parser Command
 commandParser = subparser $ mconcat
   [
@@ -73,6 +93,12 @@ commandParser = subparser $ mconcat
 
 optionsParser :: Parser Options
 optionsParser = Options <$> dataPathParser <*> commandParser
+addItemParser :: Parser Item
+addItemParser = Item
+  <$> argument str (metavar "TITLE" <> help "title")
+  <*> optional itemDescriptionValueParser
+  <*> optional itemPriorityValueParser
+  <*> optional itemDueByValueParser
 
 updateItemParser :: Parser ItemUpdate
 updateItemParser = ItemUpdate
@@ -96,17 +122,18 @@ updateItemDueByParser =
   <|> flag' Nothing (long "clear-due-by")
 
 main :: IO ()
-main = do
-  Options dataPath command  <- execParser (info (optionsParser) (progDesc "Todo list Manager"))
-  run dataPath command
+main = BSL.putStrLn $ encode (ToDoList "the-name" "the-description")
+--main = do
+--  Options dataPath command  <- execParser (info (optionsParser) (progDesc "Todo list Manager"))
+--  Run dataPath command
 run :: FilePath -> Command -> IO()
 run dataPath Info = putStrLn "Info"
 run dataPath Init = putStrLn "Init"
 run dataPath List = putStrLn "List"
-run dataPath Add  = putStrLn "Add"
-run dataPath View = putStrLn "View"
+run dataPath (Add item)   = putStrLn $ "Add: item = " ++ show item
+run dataPath (View itemIndex)  = putStrLn $ "View: itemIndex = " ++ show itemIndex
 run dataPath (Update idx itemUpdate) = putStrLn $ "Update: idx= " ++ show idx ++ " itemUpdate = " ++ show itemUpdate
-run dataPath Remove = putStrLn "Remove"
+run dataPath (Remove itemIndex) = putStrLn $ "Remove: itemIndex = " ++ show itemIndex
  -- dataPath <- execParser (info (dataPathParser) (progDesc "ToDo list file path"))
   --putStrLn $ "dataPath = " ++ show dataPath
   --itemIndex <- execParser (info (itemIndexParser) (progDesc "To do list program"))
