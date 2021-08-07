@@ -27,6 +27,7 @@ dependencies:
 - bytestring
 - aeson
 - yaml
+- time
 library:
   source-dirs: src
 

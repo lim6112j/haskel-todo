@@ -1,12 +1,15 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Main where
+import Control.Exception
 import Data.Aeson hiding (Options)
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy.Char8 as BSL
 import qualified Data.Yaml as Yaml
 import GHC.Generics
 import Options.Applicative hiding (infoParser)
+import System.IO.Error
+import Data.Time
 data Command =
   Info
   | Init
@@ -20,21 +23,21 @@ type ItemIndex = Int
 type ItemTitle = String
 type ItemDescription = Maybe String
 type ItemPriority = Maybe String
-type ItemDueBy = Maybe String
+type ItemDueBy = Maybe LocalTime
 
-data ToDoList = ToDoList
-  { name :: String
-  , details :: String
-  } deriving (Generic, Show)
+data ToDoList = ToDoList [Item] deriving (Generic, Show)
 instance ToJSON ToDoList
+instance FromJSON ToDoList
+
 data Options = Options FilePath Command deriving Show
 data Item = Item
   { title :: ItemTitle
   , description :: ItemDescription
   , priority :: ItemPriority
   , dueBy :: ItemDueBy
-  } deriving Show
-
+  } deriving (Generic, Show)
+instance ToJSON Item
+instance FromJSON Item
 data ItemUpdate = ItemUpdate
   { titleUpdate :: Maybe ItemTitle
   , descriptionUpdate :: Maybe ItemDescription
@@ -61,10 +64,19 @@ itemDescriptionValueParser =
 itemPriorityValueParser :: Parser String
 itemPriorityValueParser =
   strOption (long "Priority" <> short 'p' <> metavar "PRIORITY" <> help "Priority")
-itemDueByValueParser :: Parser String
+--itemDueByValueParser :: Parser String
+--itemDueByValueParser =
+--  strOption (long "DueBy" <> short 'b' <> metavar "DUEBY" <> help "Due By")
+itemDueByValueParser :: Parser LocalTime
 itemDueByValueParser =
-  strOption (long "DueBy" <> short 'b' <> metavar "DUEBY" <> help "Due By")
-
+  option readDateTime (long "due-by" <> short 'b' <> metavar "DUEBY" <> help "due-by")
+  where
+    readDateTime = eitherReader $ \arg ->
+      case parseDateTimeMaybe arg of
+        (Just dateTime) -> Right dateTime
+        nothing -> Left $ "Date/time string must be in " ++ dateTimeFormat ++ " format"
+    parseDateTimeMaybe = parseTimeM False defaultTimeLocale dateTimeFormat
+    dateTimeFormat = "%Y/%m/%d %H:%M:%S"
 infoParser :: Parser Command
 infoParser = pure Info
 initParser :: Parser Command
@@ -122,7 +134,18 @@ updateItemDueByParser =
   <|> flag' Nothing (long "clear-due-by")
 
 main :: IO ()
-main = BSL.putStrLn $ encode (ToDoList "the-name" "the-description")
+main = do
+  Options dataPath command <- execParser (info (optionsParser) (progDesc "To-Do List Manager"))
+  let dueBy = LocalTime (ModifiedJulianDay 0) (TimeOfDay 0 0 0)
+  writeToDoList dataPath $ ToDoList
+    [ Item "title1" (Just "description1") (Just "priority1") (Just dueBy)
+    , Item "title2" (Just "description2") (Just "priority2") (Just dueBy)
+    ]
+  toDoList <- readToDoList dataPath
+  print toDoList
+--main = do
+--  todoList <- readToDoList "file.txt"
+--  print todoList
 --main = do
 --  Options dataPath command  <- execParser (info (optionsParser) (progDesc "Todo list Manager"))
 --  Run dataPath command
@@ -139,3 +162,16 @@ run dataPath (Remove itemIndex) = putStrLn $ "Remove: itemIndex = " ++ show item
   --itemIndex <- execParser (info (itemIndexParser) (progDesc "To do list program"))
   --putStrLn $ "itemindex =" ++ show itemIndex
 
+writeToDoList :: FilePath -> ToDoList -> IO()
+writeToDoList dataPath toDoList = BS.writeFile dataPath (Yaml.encode toDoList) 
+--readToDoList :: FilePath -> IO(Maybe ToDoList)
+--readToDoList dataPath = BS.readFile dataPath >>= return . Yaml.decode
+readToDoList :: FilePath -> IO ToDoList
+readToDoList dataPath = do
+  mbToDoList <- catchJust
+    (\e -> if isDoesNotExistError e then Just () else Nothing)
+    (BS.readFile dataPath >>= return . Yaml.decode)
+    (\_ -> return $ Just (ToDoList []))
+  case mbToDoList of
+    Nothing -> error "YAML file is corrut"
+    Just toDoList -> return toDoList
