@@ -13,6 +13,8 @@ import Data.Time
 import Data.Functor ((<&>))
 import Prelude hiding ((!!))
 import DataSafe
+import Control.Monad (forM_)
+import System.Directory
 data Command =
   Info
   | Init
@@ -65,7 +67,7 @@ itemTitleValueParser =
   strOption (long "title" <> short 't' <> metavar "TITLE" <> help "Title")
 itemDescriptionValueParser :: Parser String
 itemDescriptionValueParser =
-  strOption (long "description" <> short 'd' <> metavar "DESCRITION" <> help "Description")
+  strOption (long "descn" <> short 'd' <> metavar "DESCRITION" <> help "Description")
 itemPriorityValueParser :: Parser Priority
 itemPriorityValueParser =
   option readPriority (long "priority" <> short 'p' <> metavar "PRIORITY" <> help "Priority")
@@ -80,7 +82,7 @@ itemPriorityValueParser =
 --itemDueByValueParser =
 --  strOption (long "DueBy" <> short 'b' <> metavar "DUEBY" <> help "Due By")
 itemDueByValueParser :: Parser LocalTime
-itemDueByValueParser = 
+itemDueByValueParser =
   option readDateTime (long "due-by" <> short 'b' <> metavar "DUEBY" <> help "due-by")
   where
     readDateTime = eitherReader $ \arg ->
@@ -145,25 +147,100 @@ updateItemDueByParser =
   Just <$> itemDueByValueParser
   <|> flag' Nothing (long "clear-due-by")
 
-main :: IO ()
-main = do
-  Options dataPath command <- execParser (info (optionsParser) (progDesc "To-Do List Manager"))
-  run dataPath command
---main = do
---  todoList <- readToDoList "file.txt"
---  print todoList
---main = do
---  Options dataPath command  <- execParser (info (optionsParser) (progDesc "Todo list Manager"))
---  Run dataPath command
 run :: FilePath -> Command -> IO()
-run dataPath Info = putStrLn "Info"
-run dataPath Init = putStrLn "Init"
-run dataPath List = putStrLn "List"
-run dataPath (Add item)   = putStrLn $ "Add: item = " ++ show item
+run dataPath Info = showInfo dataPath
+run dataPath Init = initItems dataPath
+run dataPath List = viewItems dataPath
+run dataPath (Add item)   = addItem dataPath item
 run dataPath (View itemIndex)  =viewItem dataPath itemIndex
-run dataPath (Update idx itemUpdate) = putStrLn $ "Update: idx= " ++ show idx ++ " itemUpdate = " ++ show itemUpdate
-run dataPath (Remove itemIndex) = putStrLn $ "Remove: itemIndex = " ++ show itemIndex
- -- dataPath <- execParser (info (dataPathParser) (progDesc "ToDo list file path"))
+run dataPath (Update idx itemUpdate) = updateItem dataPath idx itemUpdate
+run dataPath (Remove itemIndex) = deleteItem dataPath itemIndex
+
+initItems :: FilePath -> IO ()
+initItems dataPath = writeToDoList dataPath (ToDoList [])
+
+showInfo :: FilePath -> IO ()
+showInfo dataPath = do
+ putStrLn $ "dataPath : " ++ dataPath
+ exists <- doesFileExist dataPath
+ if exists
+ then do
+  s <- BS.readFile dataPath
+  let mbToDoList = Yaml.decode s
+  case mbToDoList of
+    Nothing -> putStrLn "Status : file is invalid"
+    Just (ToDoList items) -> putStrLn $ "Status contains: " ++ show (length items) ++ " items"
+ else putStrLn $ "Status : file does not exist"
+viewItems :: FilePath -> IO ()
+viewItems dataPath = do
+  ToDoList items <- readToDoList dataPath
+  forM_
+    (zip [0..] items)
+    (uncurry showItem)
+
+updateItem :: FilePath -> ItemIndex -> ItemUpdate -> IO ()
+updateItem dataPath idx (ItemUpdate mbTitle mbDescription mbPriority mbDueBy)= do
+  ToDoList items <- readToDoList dataPath
+  let update (Item title description priority dueBy) = Item
+        (updateField mbTitle title)
+        (updateField mbDescription description)
+        (updateField mbPriority priority)
+        (updateField mbDueBy dueBy)
+      updateField (Just value) _ =  value
+      updateField Nothing value = value
+      mbItems = updateAt items idx update
+  case mbItems of
+    Nothing -> putStrLn "Invalid item index"
+    Just items' -> do
+      let toDoList = ToDoList items'
+      writeToDoList dataPath toDoList
+
+updateAt :: [a] -> Int -> (a -> a) -> Maybe [a]
+updateAt xs idx f =
+  if idx < 0 || idx >= length xs
+  then Nothing
+  else
+    let (before, after) = splitAt idx xs
+        x:after' = after
+        xs' = before ++ ((f x):after')
+    in Just xs'
+viewItem :: FilePath -> ItemIndex -> IO()
+viewItem dataPath idx = do
+  ToDoList items <- readToDoList dataPath
+  let mbItems = items !! idx
+  case mbItems of
+    Nothing -> putStrLn "Invalid Item Index"
+    Just item       -> showItem idx item
+  --print items
+
+deleteItem :: FilePath -> ItemIndex -> IO ()
+deleteItem dataPath idx = do
+  ToDoList items <- readToDoList dataPath
+  let mbItems = items `removeAt` idx
+  case mbItems of
+    Nothing -> putStrLn "Invalid Item Index"
+    Just items' -> do
+      let toDoList = ToDoList items'
+      writeToDoList dataPath toDoList
+  print items
+
+removeAt :: [a] -> ItemIndex -> Maybe [a]
+removeAt xs idx =
+  if idx < 0 || idx > length xs
+  then Nothing
+  else
+    let (before, after) = splitAt idx xs
+        _:after' = after
+        xs' = before ++ after'
+    in Just xs'
+
+addItem :: FilePath -> Item -> IO ()
+addItem dataPath item = do
+  ToDoList items <- readToDoList dataPath
+  let newToDoItems = ToDoList (item:items)
+  writeToDoList dataPath newToDoItems
+  print newToDoItems
+  -- dataPath <- execParser (info (dataPathParser) (progDesc "ToDo list file path"))
   --putStrLn $ "dataPath = " ++ show dataPath
   --itemIndex <- execParser (info (itemIndexParser) (progDesc "To do list program"))
   --putStrLn $ "itemindex =" ++ show itemIndex
@@ -190,15 +267,18 @@ showItem idx (Item title mbDescription mbPriority mbDueBy) = do
   putStrLn $ showField show mbPriority
   putStr " DueBy: "
   putStrLn $ showField (formatTime defaultTimeLocale "%Y/%m/%d %H:%M:%S") mbDueBy
-  
+
 showField :: (a -> String) -> Maybe a -> String
 showField f (Just x) = f x
 showField _ Nothing = "not set"
-viewItem :: FilePath -> ItemIndex -> IO()
-viewItem dataPath idx = do
-  ToDoList items <- readToDoList dataPath
-  let mbItems = items !! idx
-  case mbItems of
-    Nothing -> putStrLn "Invalid Item Index"
-    Just item       -> showItem idx item 
-  --print items
+
+main :: IO ()
+main = do
+  Options dataPath command <- execParser (info (optionsParser) (progDesc "To-Do List Manager"))
+  run dataPath command
+--main = do
+--  todoList <- readToDoList "file.txt"
+--  print todoList
+--main = do
+--  Options dataPath command  <- execParser (info (optionsParser) (progDesc "Todo list Manager"))
+--  Run dataPath command
