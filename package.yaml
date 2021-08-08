@@ -28,6 +28,8 @@ dependencies:
 - aeson
 - yaml
 - time
+- exceptions
+
 library:
   source-dirs: src
 

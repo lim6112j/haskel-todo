@@ -10,6 +10,9 @@ import GHC.Generics
 import Options.Applicative hiding (infoParser)
 import System.IO.Error
 import Data.Time
+import Data.Functor ((<&>))
+import Prelude hiding ((!!))
+import DataSafe
 data Command =
   Info
   | Init
@@ -22,9 +25,11 @@ data Command =
 type ItemIndex = Int
 type ItemTitle = String
 type ItemDescription = Maybe String
-type ItemPriority = Maybe String
+type ItemPriority = Maybe Priority
 type ItemDueBy = Maybe LocalTime
-
+data Priority = Low | Normal | High deriving (Show, Generic)
+instance ToJSON Priority
+instance FromJSON Priority
 data ToDoList = ToDoList [Item] deriving (Generic, Show)
 instance ToJSON ToDoList
 instance FromJSON ToDoList
@@ -61,14 +66,21 @@ itemTitleValueParser =
 itemDescriptionValueParser :: Parser String
 itemDescriptionValueParser =
   strOption (long "description" <> short 'd' <> metavar "DESCRITION" <> help "Description")
-itemPriorityValueParser :: Parser String
+itemPriorityValueParser :: Parser Priority
 itemPriorityValueParser =
-  strOption (long "Priority" <> short 'p' <> metavar "PRIORITY" <> help "Priority")
+  option readPriority (long "priority" <> short 'p' <> metavar "PRIORITY" <> help "Priority")
+  where
+    readPriority = eitherReader $ \args ->
+      case args of
+        "1" -> Right Low
+        "2" -> Right Normal
+        "3" -> Right High
+        _   -> Left $ "Invalid priority value " ++ args
 --itemDueByValueParser :: Parser String
 --itemDueByValueParser =
 --  strOption (long "DueBy" <> short 'b' <> metavar "DUEBY" <> help "Due By")
 itemDueByValueParser :: Parser LocalTime
-itemDueByValueParser =
+itemDueByValueParser = 
   option readDateTime (long "due-by" <> short 'b' <> metavar "DUEBY" <> help "due-by")
   where
     readDateTime = eitherReader $ \arg ->
@@ -136,13 +148,7 @@ updateItemDueByParser =
 main :: IO ()
 main = do
   Options dataPath command <- execParser (info (optionsParser) (progDesc "To-Do List Manager"))
-  let dueBy = LocalTime (ModifiedJulianDay 0) (TimeOfDay 0 0 0)
-  writeToDoList dataPath $ ToDoList
-    [ Item "title1" (Just "description1") (Just "priority1") (Just dueBy)
-    , Item "title2" (Just "description2") (Just "priority2") (Just dueBy)
-    ]
-  toDoList <- readToDoList dataPath
-  print toDoList
+  run dataPath command
 --main = do
 --  todoList <- readToDoList "file.txt"
 --  print todoList
@@ -154,7 +160,7 @@ run dataPath Info = putStrLn "Info"
 run dataPath Init = putStrLn "Init"
 run dataPath List = putStrLn "List"
 run dataPath (Add item)   = putStrLn $ "Add: item = " ++ show item
-run dataPath (View itemIndex)  = putStrLn $ "View: itemIndex = " ++ show itemIndex
+run dataPath (View itemIndex)  =viewItem dataPath itemIndex
 run dataPath (Update idx itemUpdate) = putStrLn $ "Update: idx= " ++ show idx ++ " itemUpdate = " ++ show itemUpdate
 run dataPath (Remove itemIndex) = putStrLn $ "Remove: itemIndex = " ++ show itemIndex
  -- dataPath <- execParser (info (dataPathParser) (progDesc "ToDo list file path"))
@@ -163,15 +169,36 @@ run dataPath (Remove itemIndex) = putStrLn $ "Remove: itemIndex = " ++ show item
   --putStrLn $ "itemindex =" ++ show itemIndex
 
 writeToDoList :: FilePath -> ToDoList -> IO()
-writeToDoList dataPath toDoList = BS.writeFile dataPath (Yaml.encode toDoList) 
+writeToDoList dataPath toDoList = BS.writeFile dataPath (Yaml.encode toDoList)
 --readToDoList :: FilePath -> IO(Maybe ToDoList)
 --readToDoList dataPath = BS.readFile dataPath >>= return . Yaml.decode
 readToDoList :: FilePath -> IO ToDoList
 readToDoList dataPath = do
   mbToDoList <- catchJust
     (\e -> if isDoesNotExistError e then Just () else Nothing)
-    (BS.readFile dataPath >>= return . Yaml.decode)
+    (BS.readFile dataPath <&> Yaml.decode)
     (\_ -> return $ Just (ToDoList []))
   case mbToDoList of
     Nothing -> error "YAML file is corrut"
     Just toDoList -> return toDoList
+showItem :: ItemIndex -> Item -> IO()
+showItem idx (Item title mbDescription mbPriority mbDueBy) = do
+  putStrLn $ "[" ++ show idx ++ "]: " ++ title
+  putStr " description: "
+  putStrLn $ showField id mbDescription
+  putStr " Priority: "
+  putStrLn $ showField show mbPriority
+  putStr " DueBy: "
+  putStrLn $ showField (formatTime defaultTimeLocale "%Y/%m/%d %H:%M:%S") mbDueBy
+  
+showField :: (a -> String) -> Maybe a -> String
+showField f (Just x) = f x
+showField _ Nothing = "not set"
+viewItem :: FilePath -> ItemIndex -> IO()
+viewItem dataPath idx = do
+  ToDoList items <- readToDoList dataPath
+  let mbItems = items !! idx
+  case mbItems of
+    Nothing -> putStrLn "Invalid Item Index"
+    Just item       -> showItem idx item 
+  --print items
